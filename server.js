@@ -8,28 +8,27 @@ import nacl from "tweetnacl";
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
-const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
-const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
+const {
+  DISCORD_BOT_TOKEN,
+  DISCORD_PUBLIC_KEY,
+  DISCORD_CHANNEL_ID,
+} = process.env;
 
 // ===== 업로드 폴더 =====
 const uploadDir = path.join(process.cwd(), "public/uploads");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-// ===== multer 설정 =====
+// ===== multer =====
 const upload = multer({
   storage: multer.diskStorage({
     destination: uploadDir,
-    filename: (_, file, cb) => {
-      cb(null, Date.now() + path.extname(file.originalname));
-    },
+    filename: (_, file, cb) =>
+      cb(null, Date.now() + path.extname(file.originalname)),
   }),
 });
 
-// ===== 임시 저장소 =====
-const requests = {}; // { id: { status, result } }
+// ===== 메모리 저장 =====
+const requests = {};
 
 // ===== 정적 파일 =====
 app.use("/uploads", express.static(uploadDir));
@@ -37,21 +36,20 @@ app.use(express.static("public"));
 
 // ===== 메인 페이지 =====
 app.get("/", (_, res) => {
-  res.sendFile(path.resolve("public/index.html"));
+  res.sendFile(path.join(process.cwd(), "public/index.html"));
 });
 
-// ===== 사진 업로드 =====
+// ===== 업로드 =====
 app.post("/upload", upload.single("photo"), async (req, res) => {
   try {
     const id = Date.now().toString();
-    const imageUrl = `${req.protocol}://${req.get("host")}/uploads/${path.basename(
+    const imageUrl = `https://${req.get("host")}/uploads/${path.basename(
       req.file.path
     )}`;
 
-    requests[id] = { status: "pending", result: null };
+    requests[id] = { status: "pending" };
 
-    // Discord 메시지 (버튼 포함)
-    await fetch(
+    const discordRes = await fetch(
       `https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages`,
       {
         method: "POST",
@@ -62,12 +60,7 @@ app.post("/upload", upload.single("photo"), async (req, res) => {
         body: JSON.stringify({
           content: `@everyone 얼굴 평가 요청\nID: ${id}`,
           allowed_mentions: { parse: ["everyone"] },
-          embeds: [
-            {
-              title: "업로드된 사진",
-              image: { url: imageUrl },
-            },
-          ],
+          embeds: [{ image: { url: imageUrl } }],
           components: [
             {
               type: 1,
@@ -83,10 +76,15 @@ app.post("/upload", upload.single("photo"), async (req, res) => {
       }
     );
 
+    if (!discordRes.ok) {
+      const t = await discordRes.text();
+      console.error("Discord error:", t);
+    }
+
     res.json({ id, status: "pending", imageUrl });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "업로드 실패" });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "upload failed" });
   }
 });
 
@@ -94,61 +92,39 @@ app.post("/upload", upload.single("photo"), async (req, res) => {
 app.post(
   "/discord/interactions",
   express.json({
-    verify: (req, _, buf) => {
-      req.rawBody = buf;
-    },
+    verify: (req, _, buf) => (req.rawBody = buf),
   }),
   (req, res) => {
-    const signature = req.headers["x-signature-ed25519"];
-    const timestamp = req.headers["x-signature-timestamp"];
+    const sig = req.headers["x-signature-ed25519"];
+    const ts = req.headers["x-signature-timestamp"];
 
-    const isValid = nacl.sign.detached.verify(
-      Buffer.from(timestamp + req.rawBody),
-      Buffer.from(signature, "hex"),
+    const ok = nacl.sign.detached.verify(
+      Buffer.from(ts + req.rawBody),
+      Buffer.from(sig, "hex"),
       Buffer.from(DISCORD_PUBLIC_KEY, "hex")
     );
 
-    if (!isValid) {
-      return res.status(401).send("Invalid request signature");
-    }
+    if (!ok) return res.status(401).end("bad signature");
 
     const { type, data } = req.body;
 
-    // Discord Ping
-    if (type === 1) {
-      return res.json({ type: 1 });
-    }
+    if (type === 1) return res.json({ type: 1 });
 
-    // 버튼 클릭
     if (type === 3) {
-      const [_, id, result] = data.custom_id.split(":");
-
-      if (!requests[id] || requests[id].status === "done") {
-        return res.json({
-          type: 4,
-          data: {
-            content: "이미 판정된 요청입니다.",
-            flags: 64,
-          },
-        });
-      }
-
+      const [, id, result] = data.custom_id.split(":");
       requests[id] = { status: "done", result };
 
       return res.json({
         type: 4,
-        data: {
-          content: `판정 완료: **${result}**`,
-          flags: 64,
-        },
+        data: { content: `결과: **${result}**`, flags: 64 },
       });
     }
 
-    return res.json({ type: 5 });
+    res.json({ type: 5 });
   }
 );
 
-// ===== 서버 시작 =====
+// ===== 시작 =====
 app.listen(PORT, () => {
   console.log("Server running on", PORT);
 });
