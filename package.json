@@ -1,5 +1,5 @@
 {
-  "name": "face-review-app",
+  "name": "facetest",
   "version": "1.0.0",
   "type": "module",
   "main": "server.js",
@@ -12,8 +12,7 @@
   "dependencies": {
     "express": "^4.19.2",
     "multer": "^1.4.5-lts.2",
-    "node-fetch": "^3.3.2",
-    "form-data": "^4.0.0",
-    "crypto": "^1.0.1"
+    "tweetnacl": "^1.0.3",
+    "node-fetch": "^3.3.2"
   }
 }
