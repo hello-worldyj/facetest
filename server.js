@@ -2,14 +2,12 @@ import express from "express";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
-import fetch from "node-fetch";
 import nacl from "tweetnacl";
-import FormData from "form-data";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// ===== 환경변수 (이름 절대 변경 안 함) =====
+// 환경변수 (이름 유지)
 const {
   DISCORD_BOT_TOKEN,
   DISCORD_PUBLIC_KEY,
@@ -32,11 +30,11 @@ const upload = multer({
 // ===== 임시 저장 =====
 const requests = {};
 
-// ===== 미들웨어 =====
+// ===== 정적 =====
 app.use("/uploads", express.static(uploadDir));
 app.use(express.static("public"));
 
-// ===== 메인 페이지 =====
+// ===== 메인 =====
 app.get("/", (_, res) => {
   res.sendFile(path.join(process.cwd(), "public/index.html"));
 });
@@ -48,11 +46,13 @@ app.post("/upload", upload.single("photo"), (req, res) => {
 
   requests[id] = { status: "pending" };
 
-  // 🔥 Discord 전송 비동기 (속도 개선 핵심)
+  // 🔥 Discord 전송 비동기
   (async () => {
     try {
-      const form = new FormData();
+      const buffer = fs.readFileSync(filePath);
+      const blob = new Blob([buffer]);
 
+      const form = new FormData();
       form.append(
         "payload_json",
         JSON.stringify({
@@ -71,7 +71,7 @@ app.post("/upload", upload.single("photo"), (req, res) => {
         })
       );
 
-      form.append("files[0]", fs.createReadStream(filePath));
+      form.append("files[0]", blob, "face.png");
 
       await fetch(
         `https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages`,
@@ -79,7 +79,6 @@ app.post("/upload", upload.single("photo"), (req, res) => {
           method: "POST",
           headers: {
             Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-            ...form.getHeaders(),
           },
           body: form,
         }
@@ -89,7 +88,6 @@ app.post("/upload", upload.single("photo"), (req, res) => {
     }
   })();
 
-  // ✅ 웹에는 즉시 응답
   res.json({ id, status: "pending" });
 });
 
@@ -111,12 +109,8 @@ app.post(
 
     if (!ok) return res.status(401).end("bad signature");
 
-    // Ping
-    if (req.body.type === 1) {
-      return res.json({ type: 1 });
-    }
+    if (req.body.type === 1) return res.json({ type: 1 });
 
-    // 버튼 클릭
     if (req.body.type === 3) {
       const [, id, result] = req.body.data.custom_id.split(":");
 
@@ -139,7 +133,7 @@ app.post(
   }
 );
 
-// ===== 서버 시작 =====
+// ===== 시작 =====
 app.listen(PORT, () => {
   console.log("🔥 Server running on", PORT);
 });
