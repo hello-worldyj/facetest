@@ -48,7 +48,7 @@ app.post("/upload", upload.single("photo"), async (req, res) => {
 
     // Discord payload
     const payload = {
-      content: "📸 새 얼굴 테스트 결과",
+      content: "결과",
       embeds: [
         {
           title: "AI 얼굴 분석 (MediaPipe)",
@@ -71,13 +71,13 @@ app.post("/upload", upload.single("photo"), async (req, res) => {
     });
 
     if (!discordRes.ok) {
-      throw new Error("Discord 전송 실패");
+      throw new Error("다시 시도");
     }
 
     res.json({ score, percent, feedback, imageUrl });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "서버 오류" });
+    res.status(500).json({ error: "딴 사진 시도" });
   }
 });
 
