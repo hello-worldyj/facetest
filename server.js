@@ -4,10 +4,12 @@ import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
 import nacl from "tweetnacl";
+import FormData from "form-data";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+// ===== 환경변수 (이름 절대 변경 안 함) =====
 const {
   DISCORD_BOT_TOKEN,
   DISCORD_PUBLIC_KEY,
@@ -30,51 +32,68 @@ const upload = multer({
 // ===== 임시 저장 =====
 const requests = {};
 
-// ===== 정적 =====
+// ===== 미들웨어 =====
 app.use("/uploads", express.static(uploadDir));
 app.use(express.static("public"));
 
-// ===== 메인 =====
+// ===== 메인 페이지 =====
 app.get("/", (_, res) => {
   res.sendFile(path.join(process.cwd(), "public/index.html"));
 });
 
 // ===== 업로드 =====
-app.post("/upload", upload.single("photo"), async (req, res) => {
+app.post("/upload", upload.single("photo"), (req, res) => {
   const id = Date.now().toString();
-  const imageUrl = `https://${req.get("host")}/uploads/${path.basename(
-    req.file.path
-  )}`;
+  const filePath = req.file.path;
 
   requests[id] = { status: "pending" };
 
-  await fetch(`https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      content: `📸 얼굴 평가 요청\nID: ${id}`,
-      embeds: [{ image: { url: imageUrl } }],
-      components: [
-        {
-          type: 1,
-          components: [
-            { type: 2, label: "잘생김", style: 1, custom_id: `rate:${id}:잘생김` },
-            { type: 2, label: "예쁨", style: 1, custom_id: `rate:${id}:예쁨` },
-            { type: 2, label: "귀여움", style: 1, custom_id: `rate:${id}:귀여움` },
-            { type: 2, label: "못생김", style: 4, custom_id: `rate:${id}:못생김` },
-          ],
-        },
-      ],
-    }),
-  });
+  // 🔥 Discord 전송 비동기 (속도 개선 핵심)
+  (async () => {
+    try {
+      const form = new FormData();
 
-  res.json({ id, status: "pending", imageUrl });
+      form.append(
+        "payload_json",
+        JSON.stringify({
+          content: `📸 얼굴 평가 요청\nID: ${id}`,
+          components: [
+            {
+              type: 1,
+              components: [
+                { type: 2, label: "잘생김", style: 1, custom_id: `rate:${id}:잘생김` },
+                { type: 2, label: "예쁨", style: 1, custom_id: `rate:${id}:예쁨` },
+                { type: 2, label: "귀여움", style: 1, custom_id: `rate:${id}:귀여움` },
+                { type: 2, label: "못생김", style: 4, custom_id: `rate:${id}:못생김` },
+              ],
+            },
+          ],
+        })
+      );
+
+      form.append("files[0]", fs.createReadStream(filePath));
+
+      await fetch(
+        `https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+            ...form.getHeaders(),
+          },
+          body: form,
+        }
+      );
+    } catch (e) {
+      console.error("Discord send error:", e);
+    }
+  })();
+
+  // ✅ 웹에는 즉시 응답
+  res.json({ id, status: "pending" });
 });
 
-// ===== Interaction =====
+// ===== Discord Interactions =====
 app.post(
   "/discord/interactions",
   express.json({
@@ -90,10 +109,14 @@ app.post(
       Buffer.from(DISCORD_PUBLIC_KEY, "hex")
     );
 
-    if (!ok) return res.status(401).end("bad sig");
+    if (!ok) return res.status(401).end("bad signature");
 
-    if (req.body.type === 1) return res.json({ type: 1 });
+    // Ping
+    if (req.body.type === 1) {
+      return res.json({ type: 1 });
+    }
 
+    // 버튼 클릭
     if (req.body.type === 3) {
       const [, id, result] = req.body.data.custom_id.split(":");
 
@@ -116,7 +139,7 @@ app.post(
   }
 );
 
-// ===== 시작 =====
+// ===== 서버 시작 =====
 app.listen(PORT, () => {
-  console.log("Server running on", PORT);
+  console.log("🔥 Server running on", PORT);
 });
