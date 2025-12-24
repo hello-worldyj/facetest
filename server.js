@@ -13,7 +13,9 @@ const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
 if (!DISCORD_BOT_TOKEN || !DISCORD_PUBLIC_KEY || !DISCORD_CHANNEL_ID) {
-  console.error("⚠️ 필수 환경변수(DISCOED_BOT_TOKEN, DISCORD_PUBLIC_KEY, DISCORD_CHANNEL_ID)가 설정되지 않았습니다!");
+  console.error(
+    "⚠️ 필수 환경변수(DISCOED_BOT_TOKEN, DISCORD_PUBLIC_KEY, DISCORD_CHANNEL_ID)가 설정되지 않았습니다!"
+  );
   process.exit(1);
 }
 
@@ -46,7 +48,9 @@ app.get("/", (_, res) => {
 app.post("/upload", upload.single("photo"), async (req, res) => {
   try {
     const id = Date.now().toString();
-    const imageUrl = `${req.protocol}://${req.get("host")}/uploads/${path.basename(req.file.path)}`;
+    const imageUrl = `${req.protocol}://${req.get("host")}/uploads/${path.basename(
+      req.file.path
+    )}`;
 
     requests[id] = { status: "pending", result: null, imageUrl };
 
@@ -141,7 +145,7 @@ app.post(
         type: 4,
         data: {
           content: `평가 완료: **${result}**`,
-          flags: 64, // 비공개 응답
+          flags: 64,
         },
       });
     }
@@ -150,4 +154,27 @@ app.post(
   }
 );
 
-// 텍스트
+// 텍스트 명령 처리 (!rate 명령어)
+app.post("/discord/message", express.json(), (req, res) => {
+  const { content } = req.body;
+
+  if (!content || !content.startsWith("!rate")) return res.sendStatus(200);
+
+  const parts = content.split(" ");
+  if (parts.length !== 3) return res.sendStatus(200);
+
+  const [, id, result] = parts;
+
+  if (!requests[id]) return res.sendStatus(200);
+  if (requests[id].status === "done") return res.sendStatus(200);
+
+  requests[id].status = "done";
+  requests[id].result = result;
+
+  res.sendStatus(200);
+});
+
+// 서버 시작
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
