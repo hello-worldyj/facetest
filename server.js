@@ -3,84 +3,134 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
-import FormData from "form-data";
+import nacl from "tweetnacl";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
-if (!DISCORD_WEBHOOK_URL) {
-  console.error("⚠️ DISCORD_WEBHOOK_URL 환경변수가 설정되지 않음");
-  process.exit(1);
-}
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
+const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID; // 결과 받을 채널 ID
 
-app.use(express.json());
-
-// ===== uploads 폴더 보장 =====
+// ===== 업로드 폴더 =====
 const uploadDir = path.join(process.cwd(), "public/uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-// ===== multer 설정 =====
-const storage = multer.diskStorage({
-  destination: uploadDir,
-  filename: (_, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, Date.now() + ext);
-  },
+// ===== multer =====
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: uploadDir,
+    filename: (_, file, cb) =>
+      cb(null, Date.now() + path.extname(file.originalname)),
+  }),
 });
-const upload = multer({ storage });
+
+// ===== 임시 저장소 (DB 없음) =====
+const requests = {}; // { id: { imageUrl, status, result } }
 
 // ===== 정적 파일 =====
 app.use("/uploads", express.static(uploadDir));
 app.use(express.static("public"));
 
-// ===== 메인 =====
-app.get("/", (req, res) => {
+// ===== 메인 페이지 =====
+app.get("/", (_, res) => {
   res.sendFile(path.resolve("public/index.html"));
 });
 
 // ===== 업로드 =====
 app.post("/upload", upload.single("photo"), async (req, res) => {
-  try {
-    const { score, percent, feedback } = req.body;
-    const fileName = path.basename(req.file.path);
-    const imageUrl = `${req.protocol}://${req.get("host")}/uploads/${fileName}`;
+  const id = Date.now().toString();
+  const imageUrl = `/uploads/${path.basename(req.file.path)}`;
 
-    // Discord payload
-    const payload = {
-      content: "결과",
-      embeds: [
+  requests[id] = { status: "pending", result: null };
+
+  // Discord 메시지 전송 (버튼 포함)
+  await fetch(`https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      content: `@all 얼굴 평가 요청\nID: ${id}\n\n버튼을 누르거나\n\`!rate ${id} 잘생김\` 처럼 입력`,
+      components: [
         {
-          title: "AI 얼굴 분석 (MediaPipe)",
-          description: `점수: **${score} / 10**\n상위 **${percent}%**\n${feedback}`,
-          image: { url: imageUrl },
-          color: 5814783,
-          footer: { text: "Face Review Bot" },
-          timestamp: new Date().toISOString(),
-        },
-      ],
-    };
+          type: 1,
+          components: [
+            { type: 2, label: " 잘생김", style: 1, custom_id: `rate:${id}:잘생김` },
+            { type: 2, label: " 예쁨", style: 1, custom_id: `rate:${id}:예쁨` },
+            { type: 2, label: " 귀여움", style: 1, custom_id: `rate:${id}:귀여움` },
+            { type: 2, label: " 못생김", style: 4, custom_id: `rate:${id}:못생김` }
+          ]
+        }
+      ]
+    })
+  });
 
-    const form = new FormData();
-    form.append("payload_json", JSON.stringify(payload));
-
-    const discordRes = await fetch(DISCORD_WEBHOOK_URL, {
-      method: "POST",
-      body: form,
-      headers: form.getHeaders(),
-    });
-
-    if (!discordRes.ok) {
-      throw new Error("다시 시도");
-    }
-
-    res.json({ score, percent, feedback, imageUrl });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "딴 사진 시도" });
-  }
+  res.json({ id, status: "pending", imageUrl });
 });
 
+// ===== Discord Interaction 검증 =====
+app.post(
+  "/discord/interactions",
+  express.json({
+    verify: (req, _, buf) => (req.rawBody = buf),
+  }),
+  (req, res) => {
+    const sig = req.headers["x-signature-ed25519"];
+    const ts = req.headers["x-signature-timestamp"];
+
+    const ok = nacl.sign.detached.verify(
+      Buffer.from(ts + req.rawBody),
+      Buffer.from(sig, "hex"),
+      Buffer.from(DISCORD_PUBLIC_KEY, "hex")
+    );
+
+    if (!ok) return res.status(401).end("bad request");
+
+    const { type, data } = req.body;
+
+    // Ping
+    if (type === 1) return res.json({ type: 1 });
+
+    // 버튼 클릭
+    if (type === 3) {
+      const [_, id, result] = data.custom_id.split(":");
+      if (!requests[id] || requests[id].status === "done") {
+        return res.json({
+          type: 4,
+          data: { content: "이미 판정된 요청입니다.", flags: 64 }
+        });
+      }
+
+      requests[id] = { status: "done", result };
+
+      return res.json({
+        type: 4,
+        data: {
+          content: `판정 완료: **${result}**`,
+          flags: 64
+        }
+      });
+    }
+
+    return res.json({ type: 5 });
+  }
+);
+
+// ===== !rate 명령 (타이핑 판정) =====
+app.post("/discord/message", express.json(), (req, res) => {
+  const { content } = req.body;
+  if (!content?.startsWith("!rate")) return res.sendStatus(200);
+
+  const [, id, result] = content.split(" ");
+  if (!requests[id] || requests[id].status === "done") return res.sendStatus(200);
+
+  requests[id] = { status: "done", result };
+  res.sendStatus(200);
+});
+
+// ===== 시작 =====
 app.listen(PORT, () => {
-  console.log(`🔥 Server running on ${PORT}`);
+  console.log("Server running on", PORT);
 });
