@@ -16,7 +16,9 @@ const {
 
 // ===== 업로드 폴더 =====
 const uploadDir = path.join(process.cwd(), "public/uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 // ===== multer =====
 const upload = multer({
@@ -27,14 +29,14 @@ const upload = multer({
   }),
 });
 
-// ===== 메모리 저장 =====
+// ===== 임시 저장 =====
 const requests = {};
 
 // ===== 정적 파일 =====
 app.use("/uploads", express.static(uploadDir));
 app.use(express.static("public"));
 
-// ===== 메인 페이지 =====
+// ===== 메인 =====
 app.get("/", (_, res) => {
   res.sendFile(path.join(process.cwd(), "public/index.html"));
 });
@@ -68,17 +70,16 @@ app.post("/upload", upload.single("photo"), async (req, res) => {
                 { type: 2, label: "잘생김", style: 1, custom_id: `rate:${id}:잘생김` },
                 { type: 2, label: "예쁨", style: 1, custom_id: `rate:${id}:예쁨` },
                 { type: 2, label: "귀여움", style: 1, custom_id: `rate:${id}:귀여움` },
-                { type: 2, label: "못생김", style: 4, custom_id: `rate:${id}:못생김` },
-              ],
-            },
-          ],
+                { type: 2, label: "못생김", style: 4, custom_id: `rate:${id}:못생김` }
+              ]
+            }
+          ]
         }),
       }
     );
 
     if (!discordRes.ok) {
-      const t = await discordRes.text();
-      console.error("Discord error:", t);
+      console.error("Discord error:", await discordRes.text());
     }
 
     res.json({ id, status: "pending", imageUrl });
@@ -116,7 +117,7 @@ app.post(
 
       return res.json({
         type: 4,
-        data: { content: `결과: **${result}**`, flags: 64 },
+        data: { content: `판정 완료: **${result}**`, flags: 64 },
       });
     }
 
