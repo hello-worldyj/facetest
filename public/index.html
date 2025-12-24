@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI 얼굴 평가</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- MediaPipe -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="card">
+    <h1>AI 얼굴 평가</h1>
+
+    <input type="file" id="file" accept="image/*" />
+    <img id="preview" />
+
+    <div class="result" id="result" style="display:none;"></div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
