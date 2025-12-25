@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <title>얼굴 평가</title>
+  <title>AI 얼평</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body {
@@ -12,7 +12,7 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      font-family: system-ui, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
       color: #fff;
     }
     .card {
@@ -24,55 +24,104 @@
       box-shadow: 0 20px 50px rgba(0,0,0,0.3);
       text-align: center;
     }
-    h1 { margin-bottom: 16px; }
-    input, button {
-      width: 100%;
-      padding: 14px;
-      margin-top: 12px;
-      border-radius: 14px;
-      border: none;
+    h1 { margin-bottom: 16px; font-size: 22px; }
+    input[type="file"] {
+      width: 100%; padding: 14px; border-radius: 14px;
+      border: none; background: rgba(255,255,255,0.2); color: #fff;
     }
     button {
-      background: #2dd4bf;
-      font-weight: 700;
+      margin-top: 14px; width: 100%; padding: 14px;
+      border-radius: 14px; border: none;
+      font-size: 16px; background: #2dd4bf;
+      color: #042f2e; font-weight: 700;
       cursor: pointer;
     }
-    .result {
-      margin-top: 16px;
-      background: rgba(0,0,0,0.25);
-      padding: 14px;
-      border-radius: 14px;
-      display: none;
+    .preview img {
+      width: 100%; margin-top: 16px;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.25);
     }
+    .result {
+      margin-top: 18px;
+      background: rgba(0,0,0,0.25);
+      border-radius: 16px;
+      padding: 14px;
+      font-size: 15px;
+      min-height: 60px;
+    }
+    .score { font-size: 20px; font-weight: 800; }
+    .percent { color: #99f6e4; font-weight: 700; margin: 6px 0; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>얼굴 평가</h1>
+    <h1>AI 얼평</h1>
     <form id="form">
       <input type="file" name="photo" accept="image/*" required />
-      <button type="submit">업로드</button>
+      <button type="submit">평가</button>
     </form>
-    <div class="result" id="result"></div>
+    <div class="preview" id="preview"></div>
+    <div class="result" id="result" style="display:none;"></div>
   </div>
 
   <script>
     const form = document.getElementById("form");
+    const preview = document.getElementById("preview");
     const result = document.getElementById("result");
+    const fileInput = document.querySelector("input[type=file]");
+
+    let currentId = null;
+    let checkInterval = null;
+
+    fileInput.addEventListener("change", () => {
+      preview.innerHTML = `<img src="${URL.createObjectURL(fileInput.files[0])}" alt="선택한 사진" />`;
+      result.style.display = "none";
+      result.textContent = "";
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (!fileInput.files.length) {
+        alert("사진은여?");
+        return;
+      }
+
       result.style.display = "block";
       result.textContent = "ㄱㄷ...";
 
-      const res = await fetch("/upload", {
-        method: "POST",
-        body: new FormData(form)
-      });
+      const formData = new FormData(form);
 
-      const data = await res.json();
-      result.textContent = "ㄱㄷ 최대 2시간까지 걸릴수도";
+      try {
+        const res = await fetch("/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!res.ok) throw new Error("서버 벅");
+
+        const data = await res.json();
+        currentId = data.id;
+
+               result.textContent = "기달려      // 5초마다 결과 확인
+        if (checkInterval) clearInterval(checkInterval);
+        checkInterval = setInterval(async () => {
+          const res2 = await fetch(`/result/${currentId}`);
+          if (!res2.ok) return;
+          const resultData = await res2.json();
+
+          if (resultData.status === "done") {
+            clearInterval(checkInterval);
+            result.innerHTML = `
+              <div><b>평가 결과:</b> ${resultData.result}</div>
+              <img src="${resultData.imageUrl}" alt="평가 사진" style="margin-top: 12px; border-radius: 12px; width: 100%;" />
+            `;
+          }
+        }, 5000);
+      } catch (err) {
+        result.textContent = `병민한테 이럭해 말하샘: ${err.message}`;
+      }
     });
   </script>
 </body>
+  
 </html>
