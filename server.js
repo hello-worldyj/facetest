@@ -1,150 +1,133 @@
-import express from "express";
-import multer from "multer";
-import fs from "fs";
-import path from "path";
-import fetch from "node-fetch";
-import nacl from "tweetnacl";
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI 얼굴 평가</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #0f766e, #14b8a6);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #fff;
+    }
+    .card {
+      width: 340px;
+      background: rgba(255,255,255,0.12);
+      backdrop-filter: blur(18px);
+      border-radius: 22px;
+      padding: 26px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    h1 { margin-bottom: 16px; font-size: 22px; }
+    input[type="file"] {
+      width: 100%; padding: 14px; border-radius: 14px;
+      border: none; background: rgba(255,255,255,0.2); color: #fff;
+    }
+    button {
+      margin-top: 14px; width: 100%; padding: 14px;
+      border-radius: 14px; border: none;
+      font-size: 16px; background: #2dd4bf;
+      color: #042f2e; font-weight: 700;
+      cursor: pointer;
+    }
+    .preview img {
+      width: 100%; margin-top: 16px;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.25);
+    }
+    .result {
+      margin-top: 18px;
+      background: rgba(0,0,0,0.25);
+      border-radius: 16px;
+      padding: 14px;
+      font-size: 15px;
+    }
+    .score { font-size: 20px; font-weight: 800; }
+    .percent { color: #99f6e4; font-weight: 700; margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>AI 얼굴 평가</h1>
+    <form id="form">
+      <input type="file" name="photo" accept="image/*" required />
+      <button type="submit">평가하기</button>
+    </form>
+    <div class="preview" id="preview"></div>
+    <div class="result" id="result" style="display:none;"></div>
+  </div>
 
-const app = express();
-const PORT = process.env.PORT || 10000;
+  <script>
+    const form = document.getElementById("form");
+    const preview = document.getElementById("preview");
+    const result = document.getElementById("result");
+    const fileInput = document.querySelector("input[type=file]");
+    let currentId = null;
+    let pollingInterval = null;
 
-const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
-const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
-const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID; // 채널 ID (숫자 형태)
-
-// 업로드 폴더 보장
-const uploadDir = path.join(process.cwd(), "public/uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-// multer 설정
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: uploadDir,
-    filename: (_, file, cb) =>
-      cb(null, Date.now() + path.extname(file.originalname)),
-  }),
-});
-
-// 임시 저장소 (DB 없음)
-const requests = {}; // { id: { imageUrl, status, result } }
-
-// 정적 파일 제공
-app.use("/uploads", express.static(uploadDir));
-app.use(express.static("public"));
-
-// 메인 페이지
-app.get("/", (_, res) => {
-  res.sendFile(path.resolve("public/index.html"));
-});
-
-// 업로드 API
-app.post("/upload", upload.single("photo"), async (req, res) => {
-  try {
-    const id = Date.now().toString();
-    const imageUrl = `${req.protocol}://${req.get("host")}/uploads/${path.basename(req.file.path)}`;
-
-    requests[id] = { status: "pending", result: null, imageUrl };
-
-    // Discord 메시지 전송 (버튼 포함)
-    await fetch(`https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        content: `@everyone 얼굴 평가 요청\nID: ${id}\n\n버튼을 눌러 평가하거나\n\`!rate ${id} 잘생김\`처럼 메시지로 평가 가능`,
-        components: [
-          {
-            type: 1,
-            components: [
-              { type: 2, label: "잘생김", style: 1, custom_id: `rate:${id}:잘생김` },
-              { type: 2, label: "예쁨", style: 1, custom_id: `rate:${id}:예쁨` },
-              { type: 2, label: "귀여움", style: 1, custom_id: `rate:${id}:귀여움` },
-              { type: 2, label: "못생김", style: 4, custom_id: `rate:${id}:못생김` },
-            ],
-          },
-        ],
-      }),
+    fileInput.addEventListener("change", () => {
+      preview.innerHTML = `<img src="${URL.createObjectURL(fileInput.files[0])}" alt="선택한 사진" />`;
+      result.style.display = "none";
+      result.textContent = "";
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+      }
     });
 
-    res.json({ id, status: "pending", imageUrl });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "서버 오류가 발생했습니다." });
-  }
-});
-
-// Discord Interaction 검증 및 처리
-app.post(
-  "/discord/interactions",
-  express.json({
-    verify: (req, _, buf) => (req.rawBody = buf),
-  }),
-  (req, res) => {
-    const sig = req.headers["x-signature-ed25519"];
-    const ts = req.headers["x-signature-timestamp"];
-
-    const isValid = nacl.sign.detached.verify(
-      Buffer.from(ts + req.rawBody),
-      Buffer.from(sig, "hex"),
-      Buffer.from(DISCORD_PUBLIC_KEY, "hex")
-    );
-
-    if (!isValid) return res.status(401).end("bad request");
-
-    const { type, data } = req.body;
-
-    if (type === 1) return res.json({ type: 1 }); // Ping
-
-    if (type === 3) {
-      const [_, id, result] = data.custom_id.split(":");
-      if (!requests[id] || requests[id].status === "done") {
-        return res.json({
-          type: 4,
-          data: { content: "이미 평가가 완료된 요청입니다.", flags: 64 },
-        });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!fileInput.files.length) {
+        alert("사진은여?.");
+        return;
       }
 
-      requests[id].status = "done";
-      requests[id].result = result;
+      result.style.display = "block";
+      result.textContent = "ㄱㄷㄷㄷㄷ...";
 
-      return res.json({
-        type: 4,
-        data: {
-          content: `평가 완료: **${result}**`,
-          flags: 64,
-        },
-      });
-    }
+      try {
+        const res = await fetch("/upload", {
+          method: "POST",
+          body: new FormData(form),
+        });
 
-    return res.json({ type: 5 });
-  }
-);
+        if (!res.ok) throw new Error("서버 에러");
 
-// !rate 명령어 처리 (텍스트 평가)
-app.post("/discord/message", express.json(), (req, res) => {
-  const { content } = req.body;
-  if (!content?.startsWith("!rate")) return res.sendStatus(200);
+        const data = await res.json();
+        currentId = data.id;
 
-  const [, id, result] = content.split(" ");
-  if (!requests[id] || requests[id].status === "done") return res.sendStatus(200);
+        // 3초마다 서버에 상태 확인
+        pollingInterval = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`/status/${currentId}`);
+            if (!statusRes.ok) throw new Error("상태 조회 실패");
+            const statusData = await statusRes.json();
 
-  requests[id].status = "done";
-  requests[id].result = result;
-
-  res.sendStatus(200);
-});
-
-// 상태 조회 API (웹에서 결과 확인용)
-app.get("/status/:id", (req, res) => {
-  const id = req.params.id;
-  if (!requests[id]) return res.status(404).json({ error: "ID를 찾을 수 없습니다." });
-
-  res.json({ status: requests[id].status, result: requests[id].result, imageUrl: requests[id].imageUrl });
-});
-
-// 서버 시작
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+            if (statusData.status === "done") {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+              result.innerHTML = `
+                <div class="feedback">평가 결과: ${statusData.result}</div>
+                <img src="${statusData.imageUrl}" alt="사진" style="margin-top:12px; border-radius:16px; width:100%;" />
+              `;
+            } else {
+              result.textContent = "기달려";
+            }
+          } catch (err) {
+            result.textContent = `병민한테 보내샘: ${err.message}`;
+            clearInterval(pollingInterval);
+          }
+        }, 3000);
+      } catch (err) {
+        result.textContent = `병민한테 보내샘: ${err.message}`;
+      }
+    });
+  </script>
+</body>
+</html>
