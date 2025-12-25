@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>얼굴 평가 앱</title>
+<title>얼평 앱</title>
 <style>
   body {
     font-family: "Noto Sans KR", sans-serif;
@@ -33,11 +33,11 @@
 </style>
 </head>
 <body>
-<h1>얼굴 평가 앱</h1>
+<h1>얼평 앱</h1>
 
 <form id="form">
   <input type="file" name="photo" id="fileInput" accept="image/*" required />
-  <button type="submit">평가 요청</button>
+  <button type="submit">평가 </button>
 </form>
 
 <div class="preview" id="preview"></div>
@@ -71,12 +71,12 @@
     e.preventDefault();
 
     if (!fileInput.files.length) {
-      alert("사진을 선택해 주세요.");
+      alert("사진은여?.");
       return;
     }
 
     result.style.display = "block";
-    result.textContent = "평가 요청 중...";
+    result.textContent = "서버에 보내는중...";
 
     const formData = new FormData(form);
 
@@ -91,7 +91,7 @@
       const data = await res.json();
       currentId = data.id;
 
-      result.textContent = "평가 대기중... 디스코드에서 평가 버튼을 눌러주세요.";
+      result.textContent = "평가중..";
 
       // 결과 주기적 확인 시작
       if (checkInterval) clearInterval(checkInterval);
