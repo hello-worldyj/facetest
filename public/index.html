@@ -37,7 +37,7 @@
 
 <form id="form">
   <input type="file" name="photo" id="fileInput" accept="image/*" required />
-  <button type="submit">평가 </button>
+  <button type="submit">평가 요청</button>
 </form>
 
 <div class="preview" id="preview"></div>
@@ -71,12 +71,12 @@
     e.preventDefault();
 
     if (!fileInput.files.length) {
-      alert("사진은여?.");
+      alert("사진은여?");
       return;
     }
 
     result.style.display = "block";
-    result.textContent = "서버에 보내는중...";
+    result.textContent = "ㄱㄷ...";
 
     const formData = new FormData(form);
 
@@ -91,7 +91,7 @@
       const data = await res.json();
       currentId = data.id;
 
-      result.textContent = "평가중..";
+      result.textContent = "평가중...";
 
       // 결과 주기적 확인 시작
       if (checkInterval) clearInterval(checkInterval);
