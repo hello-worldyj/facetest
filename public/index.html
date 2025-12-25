@@ -2,19 +2,18 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>얼평 앱</title>
+  <title>얼굴 평가 앱</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div class="container">
-    <h1>얼평 앱</h1>
+    <h1>얼굴 평가 앱</h1>
     <form id="uploadForm" enctype="multipart/form-data">
       <input type="file" name="photo" accept="image/*" required />
       <button type="submit">사진 업로드</button>
     </form>
-    <div id="result"></div>
     <div id="facePreview"></div>
+    <div id="result"></div>
   </div>
 
   <script>
@@ -24,7 +23,7 @@
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      resultDiv.textContent = "ㄱㄷ...";
+      resultDiv.textContent = "업로드 중...";
       facePreview.innerHTML = "";
 
       const formData = new FormData(form);
@@ -36,7 +35,7 @@
 
       if (data.imageUrl) {
         facePreview.innerHTML = `<img src="${data.imageUrl}" alt="Uploaded face" class="face-img" />`;
-        resultDiv.textContent = `평가중... (ID: ${data.id})`;
+        resultDiv.textContent = `평가 대기중 (ID: ${data.id})`;
       } else {
         resultDiv.textContent = "업로드 실패";
       }
